@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>스페로스페라 재출고 변환기 v2</title>
+    <title>스페로스페라 재출고 변환기 v3</title>
     <style>
         body { font-family: 'Malgun Gothic', sans-serif; background-color: #f4f7f6; color: #333; margin: 0; padding: 20px; }
         h2 { text-align: center; color: #2c3e50; }
@@ -20,10 +20,10 @@
 </head>
 <body>
 
-    <h2>🔄 스페로스페라 재출고 데이터 변환기 v2</h2>
+    <h2>🔄 스페로스페라 재출고 데이터 변환기 v3</h2>
     
     <div class="instructions">
-        <strong>💡 업데이트 내용:</strong> 이제 <strong>internal_sku</strong>와 <strong>vendor_product_code</strong>가 빈칸 없이 마스터 데이터 기준으로 자동 매핑됩니다.<br>
+        <strong>💡 업데이트 내용:</strong> 채널별로 다른 상품코드는 혼선을 막기 위해 비워두고, 삼성 발주에 꼭 필요한 <strong>internal_sku</strong>와 <strong>samsung_item_name</strong>만 스마트하게 자동 매핑합니다.<br>
         1. 삼성 발주서 양식 데이터를 복사하여 왼쪽 <strong>[입력창]</strong>에 붙여넣습니다.<br>
         2. 변환 후 결과창의 데이터를 복사하여 <span class="highlight">STANDARD_ORDERS 시트 A열</span>에 붙여넣으세요.
     </div>
@@ -32,7 +32,7 @@
         <div class="box">
             <h3>📥 입력창 (삼성 발주서 복붙)</h3>
             <textarea id="inputData" placeholder="엑셀 데이터를 붙여넣으세요..."></textarea>
-            <button onclick="convertData()">마스터 데이터 기반 변환 실행 ➡️</button>
+            <button onclick="convertData()">스마트 매핑 변환 실행 ➡️</button>
         </div>
         
         <div class="box">
@@ -44,19 +44,19 @@
 
     <script>
         /**
-         * 대표님이 주신 PRODUCT_MASTER 및 ALIAS 정보를 기반으로 한 지능형 매핑 데이터
+         * 정식 명칭 매핑 (vendor_product_code 제거)
          */
         const productMaster = {
-            "S10_MILK": { name: "시그니처_밀크 크레이프 케이크", vCode: "434083" },
-            "S10_CHOC": { name: "시그니처_초코 크레이프 케이크", vCode: "434083" },
-            "S10_STRAW": { name: "시그니처_딸기 크레이프 케이크", vCode: "434083" },
-            "S10_BLUE": { name: "시그니처_블루베리 크레이프 케이크", vCode: "434083" },
-            "S10_BLACK": { name: "시그니처_흑임자 크레이프 케이크", vCode: "4453508" },
-            "S13_ROSE_MILK": { name: "로즈 크레이프 케이크", vCode: "483854" },
-            "S10_BANANA": { name: "바나나맛_크레이프 케이크", vCode: "12218925" },
-            "S10_ANGMALCHA": { name: "시그니처_앙말차 크레이프 케이크", vCode: "12190430" },
-            "S20_DJK": { name: "스페로스페라 두쫀쿠", vCode: "13075215" },
-            "S10_MILK_BLUE_BUNDLE": { name: "밀 블", vCode: "434083" }
+            "S10_MILK": "시그니처_밀크 크레이프 케이크",
+            "S10_CHOC": "시그니처_초코 크레이프 케이크",
+            "S10_STRAW": "시그니처_딸기 크레이프 케이크",
+            "S10_BLUE": "시그니처_블루베리 크레이프 케이크",
+            "S10_BLACK": "시그니처_흑임자 크레이프 케이크",
+            "S13_ROSE_MILK": "로즈 크레이프 케이크",
+            "S10_BANANA": "바나나맛_크레이프 케이크",
+            "S10_ANGMALCHA": "시그니처_앙말차 크레이프 케이크",
+            "S20_DJK": "스페로스페라 두쫀쿠",
+            "S10_MILK_BLUE_BUNDLE": "밀 블"
         };
 
         // 입력받은 품목명에서 SKU를 찾아내기 위한 키워드 사전
@@ -112,10 +112,9 @@
                 const message = (cols[8] || "").trim();
                 const subOrderNo = (cols[9] || "").trim();
 
-                // 2. 마스터 데이터 매핑 (핵심 로직)
+                // 2. 마스터 데이터 매핑
                 let internalSku = "";
                 let samsungItemName = rawItemName;
-                let vendorProductCode = "";
 
                 // 품목명에서 키워드 추출하여 SKU 탐색
                 for (let key in skuFinder) {
@@ -125,10 +124,9 @@
                     }
                 }
 
-                // SKU를 찾았다면 마스터 정보에서 정식 명칭과 코드 가져오기
+                // SKU를 찾았다면 마스터 정보에서 정식 명칭 가져오기
                 if (internalSku && productMaster[internalSku]) {
-                    samsungItemName = productMaster[internalSku].name;
-                    vendorProductCode = productMaster[internalSku].vCode;
+                    samsungItemName = productMaster[internalSku];
                 }
 
                 // 3. STANDARD_ORDERS 41개 컬럼 배열 생성
@@ -139,9 +137,9 @@
                 stdRow[1]  = channel;                          // channel
                 stdRow[2]  = orderNo;                          // channel_order_no
                 stdRow[3]  = subOrderNo;                       // channel_sub_order_no
-                stdRow[7]  = vendorProductCode;                // vendor_product_code (이제 채워집니다!)
+                stdRow[7]  = "";                               // vendor_product_code (의도적 빈칸 처리)
                 stdRow[10] = rawItemName;                      // vendor_product_name
-                stdRow[12] = internalSku;                      // internal_sku (이제 채워집니다!)
+                stdRow[12] = internalSku;                      // internal_sku
                 stdRow[13] = samsungItemName;                  // samsung_item_name
                 stdRow[14] = qty;                              // qty
                 stdRow[15] = recipient;                        // recipient_name
