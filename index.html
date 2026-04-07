@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>스페로스페라 재출고 변환기</title>
+    <style>
+        body { font-family: 'Malgun Gothic', sans-serif; background-color: #f4f7f6; color: #333; margin: 0; padding: 20px; }
+        h2 { text-align: center; color: #2c3e50; }
+        .container { display: flex; gap: 20px; max-width: 1400px; margin: 0 auto; }
+        .box { flex: 1; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        textarea { width: 100%; height: 400px; border: 1px solid #ccc; border-radius: 4px; padding: 10px; font-family: monospace; font-size: 13px; white-space: pre; overflow-wrap: normal; overflow-x: scroll; resize: vertical; box-sizing: border-box; }
+        button { display: block; width: 100%; background-color: #3498db; color: #fff; border: none; padding: 15px; font-size: 16px; font-weight: bold; border-radius: 4px; cursor: pointer; margin-top: 15px; transition: background-color 0.3s; }
+        button:hover { background-color: #2980b9; }
+        button.success { background-color: #2ecc71; }
+        button.success:hover { background-color: #27ae60; }
+        .instructions { background: #e8f4f8; padding: 15px; border-radius: 4px; margin-bottom: 20px; font-size: 14px; line-height: 1.6; color: #2c3e50; }
+        .highlight { font-weight: bold; color: #e74c3c; }
+    </style>
+</head>
+<body>
+
+    <h2>🔄 스페로스페라 재출고 데이터 변환기</h2>
+    
+    <div class="instructions">
+        1. 삼성 발주서 양식의 엑셀 데이터를 복사하여 왼쪽 <strong>[입력창]</strong>에 붙여넣습니다. (제목줄 포함/미포함 모두 가능)<br>
+        2. <strong>[STANDARD_ORDERS 양식으로 변환]</strong> 버튼을 누릅니다.<br>
+        3. 오른쪽 <strong>[결과창]</strong>의 데이터를 복사하여 구글 시트의 <span class="highlight">STANDARD_ORDERS 시트 최하단 빈 줄 A열에 붙여넣기</span> 합니다.
+    </div>
+
+    <div class="container">
+        <div class="box">
+            <h3>📥 입력창 (삼성 발주서 양식 복붙)</h3>
+            <textarea id="inputData" placeholder="엑셀에서 복사한 데이터를 여기에 붙여넣으세요..."></textarea>
+            <button onclick="convertData()">STANDARD_ORDERS 양식으로 변환 ➡️</button>
+        </div>
+        
+        <div class="box">
+            <h3>📤 결과창 (STANDARD_ORDERS 양식)</h3>
+            <textarea id="outputData" placeholder="변환된 결과가 여기에 나타납니다..." readonly></textarea>
+            <button id="copyBtn" class="success" onclick="copyToClipboard()">📋 결과 복사하기</button>
+        </div>
+    </div>
+
+    <script>
+        // 상품명 -> 내부 SKU 매핑 사전
+        const skuMap = {
+            "밀크": "S10_MILK",
+            "딸기": "S10_STRAW",
+            "초코": "S10_CHOC",
+            "블루베리": "S10_BLUE",
+            "바나나": "S10_BANANA",
+            "앙말차": "S10_ANGMALCHA",
+            "흑임자": "S10_BLACK",
+            "두쫀쿠": "S20_DJK",
+            "밀   블": "S10_MILK_BLUE_BUNDLE"
+        };
+
+        function getTodayString() {
+            const now = new Date();
+            const y = now.getFullYear();
+            const m = String(now.getMonth() + 1).padStart(2, '0');
+            const d = String(now.getDate()).padStart(2, '0');
+            const h = String(now.getHours()).padStart(2, '0');
+            const min = String(now.getMinutes()).padStart(2, '0');
+            const s = String(now.getSeconds()).padStart(2, '0');
+            return `${y}-${m}-${d} ${h}:${min}:${s}`;
+        }
+
+        function convertData() {
+            const input = document.getElementById('inputData').value.trim();
+            if (!input) {
+                alert("입력창에 데이터를 붙여넣어 주세요!");
+                return;
+            }
+
+            const lines = input.split('\n');
+            let outputRows = [];
+            const todayStr = getTodayString();
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                
+                const cols = line.split('\t');
+                
+                // 첫 줄이 제목줄(헤더)인지 확인하고 건너뛰기
+                if (i === 0 && cols[0] && cols[0].includes("품목명")) continue;
+
+                // 데이터 파싱 방어 코드 (컬럼 부족 시 빈 문자열 채움)
+                const itemNameRaw = (cols[0] || "").trim();
+                const qty = (cols[1] || "1").trim();
+                const orderNo = (cols[2] || "").trim();
+                const recipientName = (cols[3] || "").trim();
+                const phone = (cols[4] || "").trim();
+                const zipcodeRaw = (cols[5] || "").trim();
+                const address = (cols[6] || "").trim();
+                const channel = (cols[7] || "수동재출고").trim();
+                const message = (cols[8] || "").trim();
+                const subOrderNo = (cols[9] || "").trim();
+
+                // 상품 매핑
+                let sku = skuMap[itemNameRaw] || "";
+                
+                // 제주 판별
+                const isJeju = address.includes("제주") ? "TRUE" : "FALSE";
+                
+                // 고유 주문번호 (UUID 대체용 해시)
+                const randomHash = Math.random().toString(36).substring(2, 8);
+                const orderId = `재출고-${orderNo}-${randomHash}`;
+
+                // STANDARD_ORDERS의 정확한 41개 컬럼 배열 생성 (빈 칸은 "")
+                const stdRow = new Array(41).fill("");
+
+                stdRow[0]  = orderId;                     // order_id
+                stdRow[1]  = channel;                     // channel (매출처명)
+                stdRow[2]  = orderNo;                     // channel_order_no
+                stdRow[3]  = subOrderNo;                  // channel_sub_order_no
+                stdRow[10] = itemNameRaw;                 // vendor_product_name
+                stdRow[12] = sku;                         // internal_sku
+                stdRow[13] = itemNameRaw;                 // samsung_item_name (동일하게 넣음)
+                stdRow[14] = qty;                         // qty
+                stdRow[15] = recipientName;               // recipient_name
+                stdRow[16] = phone;                       // recipient_phone
+                stdRow[17] = zipcodeRaw.padStart(5, '0'); // zipcode (무조건 5자리 0 채우기)
+                stdRow[18] = address;                     // address_raw
+                stdRow[19] = address;                     // address_norm
+                stdRow[20] = address;                     // address_final
+                stdRow[21] = message;                     // delivery_message
+                stdRow[25] = "READY";                     // status (무조건 출고 대기로 세팅)
+                stdRow[29] = isJeju;                      // is_jeju
+                stdRow[30] = "FALSE";                     // is_address_suspect
+                stdRow[32] = "[재출고]";                    // notes (직원이 알아보기 쉽게)
+                stdRow[33] = todayStr;                    // created_at
+
+                // 탭으로 연결하여 한 줄 완성
+                outputRows.push(stdRow.join('\t'));
+            }
+
+            document.getElementById('outputData').value = outputRows.join('\n');
+            
+            const copyBtn = document.getElementById('copyBtn');
+            copyBtn.innerText = "✨ 변환 완료! (여기를 눌러 복사하세요)";
+            copyBtn.style.backgroundColor = "#e67e22";
+        }
+
+        function copyToClipboard() {
+            const output = document.getElementById('outputData');
+            if (!output.value) {
+                alert("먼저 데이터를 변환해 주세요!");
+                return;
+            }
+            
+            output.select();
+            output.setSelectionRange(0, 99999); // 모바일 대응
+            document.execCommand("copy");
+            
+            const copyBtn = document.getElementById('copyBtn');
+            copyBtn.innerText = "✅ 복사 완료! (시트 A열에 붙여넣기 하세요)";
+            copyBtn.style.backgroundColor = "#27ae60";
+            
+            setTimeout(() => {
+                copyBtn.innerText = "📋 결과 복사하기";
+                copyBtn.style.backgroundColor = "#2ecc71";
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
