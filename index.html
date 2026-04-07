@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>스페로스페라 재출고 변환기</title>
+    <title>스페로스페라 재출고 변환기 v2</title>
     <style>
         body { font-family: 'Malgun Gothic', sans-serif; background-color: #f4f7f6; color: #333; margin: 0; padding: 20px; }
         h2 { text-align: center; color: #2c3e50; }
@@ -20,19 +20,19 @@
 </head>
 <body>
 
-    <h2>🔄 스페로스페라 재출고 데이터 변환기</h2>
+    <h2>🔄 스페로스페라 재출고 데이터 변환기 v2</h2>
     
     <div class="instructions">
-        1. 삼성 발주서 양식의 엑셀 데이터를 복사하여 왼쪽 <strong>[입력창]</strong>에 붙여넣습니다. (제목줄 포함/미포함 모두 가능)<br>
-        2. <strong>[STANDARD_ORDERS 양식으로 변환]</strong> 버튼을 누릅니다.<br>
-        3. 오른쪽 <strong>[결과창]</strong>의 데이터를 복사하여 구글 시트의 <span class="highlight">STANDARD_ORDERS 시트 최하단 빈 줄 A열에 붙여넣기</span> 합니다.
+        <strong>💡 업데이트 내용:</strong> 이제 <strong>internal_sku</strong>와 <strong>vendor_product_code</strong>가 빈칸 없이 마스터 데이터 기준으로 자동 매핑됩니다.<br>
+        1. 삼성 발주서 양식 데이터를 복사하여 왼쪽 <strong>[입력창]</strong>에 붙여넣습니다.<br>
+        2. 변환 후 결과창의 데이터를 복사하여 <span class="highlight">STANDARD_ORDERS 시트 A열</span>에 붙여넣으세요.
     </div>
 
     <div class="container">
         <div class="box">
-            <h3>📥 입력창 (삼성 발주서 양식 복붙)</h3>
-            <textarea id="inputData" placeholder="엑셀에서 복사한 데이터를 여기에 붙여넣으세요..."></textarea>
-            <button onclick="convertData()">STANDARD_ORDERS 양식으로 변환 ➡️</button>
+            <h3>📥 입력창 (삼성 발주서 복붙)</h3>
+            <textarea id="inputData" placeholder="엑셀 데이터를 붙여넣으세요..."></textarea>
+            <button onclick="convertData()">마스터 데이터 기반 변환 실행 ➡️</button>
         </div>
         
         <div class="box">
@@ -43,17 +43,36 @@
     </div>
 
     <script>
-        // 상품명 -> 내부 SKU 매핑 사전
-        const skuMap = {
+        /**
+         * 대표님이 주신 PRODUCT_MASTER 및 ALIAS 정보를 기반으로 한 지능형 매핑 데이터
+         */
+        const productMaster = {
+            "S10_MILK": { name: "시그니처_밀크 크레이프 케이크", vCode: "434083" },
+            "S10_CHOC": { name: "시그니처_초코 크레이프 케이크", vCode: "434083" },
+            "S10_STRAW": { name: "시그니처_딸기 크레이프 케이크", vCode: "434083" },
+            "S10_BLUE": { name: "시그니처_블루베리 크레이프 케이크", vCode: "434083" },
+            "S10_BLACK": { name: "시그니처_흑임자 크레이프 케이크", vCode: "4453508" },
+            "S13_ROSE_MILK": { name: "로즈 크레이프 케이크", vCode: "483854" },
+            "S10_BANANA": { name: "바나나맛_크레이프 케이크", vCode: "12218925" },
+            "S10_ANGMALCHA": { name: "시그니처_앙말차 크레이프 케이크", vCode: "12190430" },
+            "S20_DJK": { name: "스페로스페라 두쫀쿠", vCode: "13075215" },
+            "S10_MILK_BLUE_BUNDLE": { name: "밀 블", vCode: "434083" }
+        };
+
+        // 입력받은 품목명에서 SKU를 찾아내기 위한 키워드 사전
+        const skuFinder = {
             "밀크": "S10_MILK",
-            "딸기": "S10_STRAW",
             "초코": "S10_CHOC",
+            "딸기": "S10_STRAW",
             "블루베리": "S10_BLUE",
+            "흑임자": "S10_BLACK",
+            "로즈": "S13_ROSE_MILK",
             "바나나": "S10_BANANA",
             "앙말차": "S10_ANGMALCHA",
-            "흑임자": "S10_BLACK",
             "두쫀쿠": "S20_DJK",
-            "밀   블": "S10_MILK_BLUE_BUNDLE"
+            "두바이": "S20_DJK",
+            "밀   블": "S10_MILK_BLUE_BUNDLE",
+            "밀 블": "S10_MILK_BLUE_BUNDLE"
         };
 
         function getTodayString() {
@@ -69,10 +88,7 @@
 
         function convertData() {
             const input = document.getElementById('inputData').value.trim();
-            if (!input) {
-                alert("입력창에 데이터를 붙여넣어 주세요!");
-                return;
-            }
+            if (!input) { alert("입력 데이터가 없습니다!"); return; }
 
             const lines = input.split('\n');
             let outputRows = [];
@@ -80,89 +96,81 @@
 
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i].trim();
-                if (!line) continue;
+                if (!line || (i === 0 && line.includes("품목명"))) continue;
                 
                 const cols = line.split('\t');
                 
-                // 첫 줄이 제목줄(헤더)인지 확인하고 건너뛰기
-                if (i === 0 && cols[0] && cols[0].includes("품목명")) continue;
-
-                // 데이터 파싱 방어 코드 (컬럼 부족 시 빈 문자열 채움)
-                const itemNameRaw = (cols[0] || "").trim();
+                // 1. 원본 데이터 파싱
+                const rawItemName = (cols[0] || "").trim();
                 const qty = (cols[1] || "1").trim();
                 const orderNo = (cols[2] || "").trim();
-                const recipientName = (cols[3] || "").trim();
+                const recipient = (cols[3] || "").trim();
                 const phone = (cols[4] || "").trim();
-                const zipcodeRaw = (cols[5] || "").trim();
+                const zipcode = (cols[5] || "").trim();
                 const address = (cols[6] || "").trim();
                 const channel = (cols[7] || "수동재출고").trim();
                 const message = (cols[8] || "").trim();
                 const subOrderNo = (cols[9] || "").trim();
 
-                // 상품 매핑
-                let sku = skuMap[itemNameRaw] || "";
-                
-                // 제주 판별
-                const isJeju = address.includes("제주") ? "TRUE" : "FALSE";
-                
-                // 고유 주문번호 (UUID 대체용 해시)
-                const randomHash = Math.random().toString(36).substring(2, 8);
-                const orderId = `재출고-${orderNo}-${randomHash}`;
+                // 2. 마스터 데이터 매핑 (핵심 로직)
+                let internalSku = "";
+                let samsungItemName = rawItemName;
+                let vendorProductCode = "";
 
-                // STANDARD_ORDERS의 정확한 41개 컬럼 배열 생성 (빈 칸은 "")
+                // 품목명에서 키워드 추출하여 SKU 탐색
+                for (let key in skuFinder) {
+                    if (rawItemName.includes(key)) {
+                        internalSku = skuFinder[key];
+                        break;
+                    }
+                }
+
+                // SKU를 찾았다면 마스터 정보에서 정식 명칭과 코드 가져오기
+                if (internalSku && productMaster[internalSku]) {
+                    samsungItemName = productMaster[internalSku].name;
+                    vendorProductCode = productMaster[internalSku].vCode;
+                }
+
+                // 3. STANDARD_ORDERS 41개 컬럼 배열 생성
                 const stdRow = new Array(41).fill("");
+                const randomHash = Math.random().toString(36).substring(2, 8);
 
-                stdRow[0]  = orderId;                     // order_id
-                stdRow[1]  = channel;                     // channel (매출처명)
-                stdRow[2]  = orderNo;                     // channel_order_no
-                stdRow[3]  = subOrderNo;                  // channel_sub_order_no
-                stdRow[10] = itemNameRaw;                 // vendor_product_name
-                stdRow[12] = sku;                         // internal_sku
-                stdRow[13] = itemNameRaw;                 // samsung_item_name (동일하게 넣음)
-                stdRow[14] = qty;                         // qty
-                stdRow[15] = recipientName;               // recipient_name
-                stdRow[16] = phone;                       // recipient_phone
-                stdRow[17] = zipcodeRaw.padStart(5, '0'); // zipcode (무조건 5자리 0 채우기)
-                stdRow[18] = address;                     // address_raw
-                stdRow[19] = address;                     // address_norm
-                stdRow[20] = address;                     // address_final
-                stdRow[21] = message;                     // delivery_message
-                stdRow[25] = "READY";                     // status (무조건 출고 대기로 세팅)
-                stdRow[29] = isJeju;                      // is_jeju
-                stdRow[30] = "FALSE";                     // is_address_suspect
-                stdRow[32] = "[재출고]";                    // notes (직원이 알아보기 쉽게)
-                stdRow[33] = todayStr;                    // created_at
+                stdRow[0]  = `재출고-${orderNo}-${randomHash}`; // order_id
+                stdRow[1]  = channel;                          // channel
+                stdRow[2]  = orderNo;                          // channel_order_no
+                stdRow[3]  = subOrderNo;                       // channel_sub_order_no
+                stdRow[7]  = vendorProductCode;                // vendor_product_code (이제 채워집니다!)
+                stdRow[10] = rawItemName;                      // vendor_product_name
+                stdRow[12] = internalSku;                      // internal_sku (이제 채워집니다!)
+                stdRow[13] = samsungItemName;                  // samsung_item_name
+                stdRow[14] = qty;                              // qty
+                stdRow[15] = recipient;                        // recipient_name
+                stdRow[16] = phone;                            // recipient_phone
+                stdRow[17] = zipcode.padStart(5, '0');         // zipcode
+                stdRow[18] = address;                          // address_raw
+                stdRow[19] = address;                          // address_norm
+                stdRow[20] = address;                          // address_final
+                stdRow[21] = message;                          // delivery_message
+                stdRow[25] = "READY";                          // status
+                stdRow[29] = address.includes("제주") ? "TRUE" : "FALSE"; // is_jeju
+                stdRow[32] = "[재출고]";                        // notes
+                stdRow[33] = todayStr;                         // created_at
 
-                // 탭으로 연결하여 한 줄 완성
                 outputRows.push(stdRow.join('\t'));
             }
 
             document.getElementById('outputData').value = outputRows.join('\n');
-            
-            const copyBtn = document.getElementById('copyBtn');
-            copyBtn.innerText = "✨ 변환 완료! (여기를 눌러 복사하세요)";
-            copyBtn.style.backgroundColor = "#e67e22";
+            document.getElementById('copyBtn').innerText = "✨ 변환 성공! 클릭하여 복사";
         }
 
         function copyToClipboard() {
             const output = document.getElementById('outputData');
-            if (!output.value) {
-                alert("먼저 데이터를 변환해 주세요!");
-                return;
-            }
-            
             output.select();
-            output.setSelectionRange(0, 99999); // 모바일 대응
             document.execCommand("copy");
-            
-            const copyBtn = document.getElementById('copyBtn');
-            copyBtn.innerText = "✅ 복사 완료! (시트 A열에 붙여넣기 하세요)";
-            copyBtn.style.backgroundColor = "#27ae60";
-            
-            setTimeout(() => {
-                copyBtn.innerText = "📋 결과 복사하기";
-                copyBtn.style.backgroundColor = "#2ecc71";
-            }, 3000);
+            const btn = document.getElementById('copyBtn');
+            btn.innerText = "✅ 복사되었습니다!";
+            btn.style.backgroundColor = "#27ae60";
+            setTimeout(() => { btn.innerText = "📋 결과 복사하기"; btn.style.backgroundColor = "#2ecc71"; }, 3000);
         }
     </script>
 </body>
